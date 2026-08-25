@@ -11,13 +11,9 @@ interface UserItem {
 }
 
 export default function AdminPage() {
-  // 初期化時に sessionStorage をチェック（useEffect 内での setState を回避）
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      return sessionStorage.getItem("admin_authenticated") === "true";
-    }
-    return false;
-  });
+  // ハイドレーションエラー回避のため、初期表示は固定値(false)にする
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isMounted, setIsMounted] = useState<boolean>(false);
 
   const [inputPassword, setInputPassword] = useState("");
   const [passError, setPassError] = useState("");
@@ -44,6 +40,14 @@ export default function AdminPage() {
 
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // マウント後に sessionStorage からログイン状態を同期する
+  useEffect(() => {
+    setIsMounted(true);
+    if (sessionStorage.getItem("admin_authenticated") === "true") {
+      setIsAuthenticated(true);
+    }
+  }, []);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,7 +77,6 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      // setTimeout でコールバック化し、useEffect 直後の同期的 setState を回避
       const timer = setTimeout(() => {
         fetchUsers();
       }, 0);
@@ -86,14 +89,14 @@ export default function AdminPage() {
       return;
     }
 
-    let isMounted = true;
+    let isMountedFlag = true;
     const fetchCurrentPoints = async () => {
       const { data, error } = await supabase
         .from("transactions")
         .select("point_change")
         .eq("user_id", selectedUserId);
 
-      if (isMounted && !error && data) {
+      if (isMountedFlag && !error && data) {
         const total = data.reduce((acc, cur) => acc + cur.point_change, 0);
         setCurrentPoints(total);
       }
@@ -102,7 +105,7 @@ export default function AdminPage() {
     fetchCurrentPoints();
 
     return () => {
-      isMounted = false;
+      isMountedFlag = false;
     };
   }, [selectedUserId, successMsg]);
 
@@ -218,6 +221,11 @@ export default function AdminPage() {
   const filteredUsers = users.filter((u) =>
     u.display_name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // ブラウザでのレンダリング準備が整うまで何も描画しない（ミスマッチ防止）
+  if (!isMounted) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return (
