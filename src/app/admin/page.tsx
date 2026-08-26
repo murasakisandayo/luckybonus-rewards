@@ -18,17 +18,21 @@ interface TransactionItem {
   description?: string;
   type?: string;
   created_at: string;
-}
+};
 
+/**
+ * 暗号学的に安全な乱数を使って8桁IDを生成
+ */
 const generate8DigitId = () => {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
+  const randomValues = new Uint32Array(8);
 
-  for (let i = 0; i < 8; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
+  crypto.getRandomValues(randomValues);
 
-  return result;
+  return Array.from(
+    randomValues,
+    (value) => chars[value % chars.length]
+  ).join("");
 };
 
 export default function AdminPage() {
