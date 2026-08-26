@@ -1,162 +1,230 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
-interface Transaction {
+interface UserItem {
   id: string;
-  point_change: number;
-  event_name: string;
-  reason: string;
+  name: string;
+  points: number;
+  note?: string;
+  created_at?: string;
+}
+
+interface TransactionItem {
+  id: string;
+  user_id: string;
+  amount: number;
+  description?: string;
   created_at: string;
 }
 
-interface User {
-  id: string;
-  display_name: string;
-}
-
-export default function UserPointPage({ params }: { params: Promise<{ id: string }> }) {
+export default function UserPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const userId = resolvedParams.id;
 
-  const [user, setUser] = useState<User | null>(null);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [user, setUser] = useState<UserItem | null>(null);
+  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
-      setError(false);
+    let isSubscribed = true;
 
+    const fetchData = async () => {
+      // ユーザー情報の取得
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("id, display_name")
+        .select("*")
         .eq("id", userId)
         .single();
 
       if (userError || !userData) {
-        setError(true);
-        setLoading(false);
+        console.error("ユーザー取得エラー:", userError);
+        if (isSubscribed) setLoading(false);
         return;
       }
 
-      setUser(userData);
-
-      const { data: txData } = await supabase
+      // 履歴情報の取得
+      const { data: txData, error: txError } = await supabase
         .from("transactions")
         .select("*")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
-      if (txData) {
-        setTransactions(txData);
+      if (txError) {
+        console.error("履歴取得エラー:", txError);
       }
 
-      setLoading(false);
-    }
+      if (isSubscribed) {
+        const currentUser = userData as UserItem;
+        setUser(currentUser);
 
-    fetchData();
+        const loadedTx = (txData as TransactionItem[]) || [];
+
+        // 履歴が空の場合は、初期ポイントを仮想の1件目として補完表示
+        if (loadedTx.length === 0) {
+          setTransactions([
+            {
+              id: "init-fallback",
+              user_id: currentUser.id,
+              amount: currentUser.points,
+              description: "初期持ち越しポイント",
+              created_at: currentUser.created_at || "2026-01-01T00:00:00.000Z",
+            },
+          ]);
+        } else {
+          setTransactions(loadedTx);
+        }
+
+        setLoading(false);
+      }
+    };
+
+    void fetchData();
+
+    return () => {
+      isSubscribed = false;
+    };
   }, [userId]);
+
+  const handleCopyPageUrl = () => {
+    if (typeof window !== "undefined") {
+      navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-purple-100 flex items-center justify-center p-4">
-        <p className="text-sm font-bold text-purple-700 animate-pulse">読み込み中...</p>
-      </div>
-    );
-  }
-
-  if (error || !user) {
-    return (
-      <div className="min-h-screen bg-purple-100 flex items-center justify-center p-4">
-        <div className="bg-white border border-purple-300 p-6 rounded-2xl max-w-sm w-full text-center shadow-md">
-          <p className="text-red-600 font-bold mb-1">ユーザーが見つかりません</p>
-          <p className="text-xs text-slate-500">URLが正しいかご確認ください。</p>
+      <main className="min-h-screen bg-gradient-to-b from-purple-200 via-purple-100 to-indigo-100 flex items-center justify-center p-4">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-bold text-purple-900">情報を読み込み中...</p>
         </div>
-      </div>
+      </main>
     );
   }
 
-  const totalPoints = transactions.reduce((acc, cur) => acc + cur.point_change, 0);
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-gradient-to-b from-purple-200 via-purple-100 to-indigo-100 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white/90 backdrop-blur-md rounded-3xl p-6 shadow-xl border border-purple-200 text-center space-y-4">
+          <div className="text-4xl">🔍</div>
+          <h1 className="text-lg font-extrabold text-slate-800">
+            ページが見つかりませんでした
+          </h1>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            入力されたID（<span className="font-mono font-bold text-purple-950">{userId}</span>）に対応するマイページが存在しないか、URLが変更された可能性があります。
+          </p>
+          <Link
+            href="/"
+            className="inline-block bg-purple-600 hover:bg-purple-700 text-white font-extrabold px-6 py-2.5 rounded-2xl text-xs transition shadow-md"
+          >
+            トップページに戻る
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-200 via-purple-100 to-indigo-100 p-4 sm:p-6 flex flex-col items-center justify-start">
-      <div className="w-full max-w-md space-y-5 pt-2">
-        {/* ヘッダータイトル */}
-        <div className="text-center space-y-1">
-          <span className="inline-block bg-purple-600 text-yellow-300 text-[10px] font-black px-3 py-0.5 rounded-full shadow-sm tracking-wider">
-            ★ ラキボリワード ★
+    <main className="min-h-screen bg-gradient-to-b from-purple-200 via-purple-100 to-indigo-100 p-4 sm:p-6 flex flex-col items-center justify-between">
+      <div className="w-full max-w-md space-y-5 pt-4">
+        {/* トップへ戻るリンク ＆ タイトル */}
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            className="text-xs font-bold text-purple-800 hover:text-purple-950 flex items-center gap-1 bg-white/60 hover:bg-white/80 px-3 py-1.5 rounded-full transition border border-purple-200"
+          >
+            <span>← トップへ</span>
+          </Link>
+          <span className="text-[10px] font-mono font-extrabold text-purple-700 bg-purple-200/80 px-2.5 py-0.5 rounded-full">
+            ID: {user.id}
           </span>
-          <h1 className="text-2xl font-black text-purple-950 tracking-tight drop-shadow-sm">
-            持ち越しポイント確認
-          </h1>
         </div>
 
-        {/* メインのデジタルカード（明るいパステル調） */}
-        <div className="relative overflow-hidden rounded-3xl bg-white border-2 border-purple-300 p-6 shadow-xl shadow-purple-200/60">
-          <div className="absolute -top-3 -right-3 text-purple-200 text-8xl select-none font-black pointer-events-none">★</div>
-          <div className="absolute -bottom-6 -left-4 text-purple-100 text-9xl select-none font-black pointer-events-none">★</div>
+        {/* ポイント残高メインカード */}
+        <div className="relative overflow-hidden rounded-3xl bg-white border-2 border-purple-300 p-6 shadow-xl shadow-purple-200/60 text-center space-y-4">
+          <div className="space-y-1">
+            <span className="inline-block bg-purple-100 text-purple-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full">
+              マイページ
+            </span>
+            <h1 className="text-xl font-extrabold text-slate-800">{user.name} 様</h1>
+          </div>
 
-          <div className="relative z-10 flex flex-col items-center">
-            <div className="bg-purple-100 border border-purple-300 px-4 py-1 rounded-full mb-2">
-              <span className="text-xs text-purple-800 font-bold">参加者名</span>
-            </div>
-            <h2 className="text-xl font-extrabold text-slate-800 mb-5">
-              {user.display_name} <span className="text-xs font-normal text-slate-500">様</span>
-            </h2>
-
-            {/* ポイント表示エリア（ロゴの黄色を意識した大きな数字） */}
-            <div className="w-full bg-gradient-to-br from-amber-50 to-yellow-100 border-2 border-amber-300/80 rounded-2xl p-5 text-center shadow-inner">
-              <p className="text-xs font-extrabold text-amber-800 mb-1">現在の保有ポイント</p>
-              <div className="flex items-baseline justify-center gap-1">
-                <span className="text-5xl font-black text-amber-600 drop-shadow">
-                  {totalPoints}
-                </span>
-                <span className="text-base font-bold text-amber-800">pt</span>
-              </div>
+          <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100 rounded-2xl p-5 space-y-1 shadow-inner">
+            <span className="text-xs font-bold text-purple-600">現在ポイント</span>
+            <div className="flex items-baseline justify-center gap-1">
+              <span className="text-4xl font-black text-purple-950 tracking-tight">
+                {user.points.toLocaleString()}
+              </span>
+              <span className="text-sm font-bold text-purple-700">pt</span>
             </div>
           </div>
+
+          {/* ページURLコピーボタン */}
+          <button
+            onClick={handleCopyPageUrl}
+            className="w-full bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 font-bold text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2"
+          >
+            <span>🔗 マイページのURLを保存・コピー</span>
+            {copied && <span className="text-[10px] text-emerald-600 font-extrabold">コピー完了!</span>}
+          </button>
         </div>
 
-        {/* 履歴リスト */}
-        <div className="bg-white/90 border border-purple-200 rounded-2xl p-5 shadow-md backdrop-blur-sm">
-          <h3 className="text-xs font-bold text-purple-900 mb-3 flex items-center gap-1 border-b border-purple-100 pb-2">
-            <span>★</span> ポイント獲得・利用履歴
-          </h3>
+        {/* 🔒 URLの管理に関する注意事項 */}
+        <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-3.5 shadow-xs text-amber-900 space-y-1">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800">
+            <span>🔒</span>
+            <span>URLの管理についてのお願い</span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-amber-800/90 pl-5">
+            本ページ（専用URL）を知っている方はどなたでも残高をご確認いただけます。第三者へのURLの漏洩には十分ご注意ください。
+          </p>
+        </div>
 
-          {transactions.length === 0 ? (
-            <p className="text-center text-xs text-slate-400 py-4">履歴はありません</p>
-          ) : (
-            <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-              {transactions.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="bg-purple-50/60 border border-purple-200/70 p-3 rounded-xl flex items-center justify-between text-xs gap-2"
-                >
-                  <div className="space-y-0.5 min-w-0">
-                    <p className="font-bold text-slate-800 truncate">{tx.event_name || "ラキボ杯"}</p>
-                    <p className="text-[10px] text-slate-500">{tx.reason || "-"}</p>
-                    <p className="text-[9px] text-slate-400">
-                      {new Date(tx.created_at).toLocaleDateString("ja-JP")}
-                    </p>
-                  </div>
-                  <div
-                    className={`font-black text-xs px-2.5 py-1 rounded-lg border ${
-                      tx.point_change > 0
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                        : "bg-rose-50 text-rose-600 border-rose-300"
-                    }`}
-                  >
-                    {tx.point_change > 0 ? `+${tx.point_change}` : tx.point_change} pt
-                  </div>
+        {/* ポイント利用・獲得履歴 */}
+        <div className="bg-white/80 border border-purple-200 rounded-2xl p-4 shadow-sm backdrop-blur-sm space-y-3">
+          <h2 className="text-xs font-extrabold text-purple-900 flex items-center gap-1">
+            <span>📋</span> ポイント獲得・利用履歴
+          </h2>
+
+          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            {transactions.map((tx) => (
+              <div
+                key={tx.id}
+                className="bg-white border border-purple-100 rounded-xl p-3 flex items-center justify-between text-xs shadow-2xs"
+              >
+                <div className="space-y-0.5">
+                  <p className="font-bold text-slate-800">
+                    {tx.description || "ポイント変更"}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {new Date(tx.created_at).toLocaleString("ja-JP")}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
+                <span
+                  className={`font-mono font-extrabold px-2.5 py-1 rounded-lg text-xs ${
+                    tx.amount >= 0
+                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                      : "bg-rose-50 text-rose-600 border border-rose-200"
+                  }`}
+                >
+                  {tx.amount >= 0 ? `+${tx.amount}` : tx.amount} pt
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* フッター */}
+      <footer className="w-full max-w-md pt-8 pb-4 text-center">
+        <p className="text-[10px] text-purple-400">ラキボリワード 公式ポータル</p>
+      </footer>
+    </main>
   );
 }
